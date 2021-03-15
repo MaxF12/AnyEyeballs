@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex, mpsc};
 ///
 /// Returns true if packet is first of a new connection, false else
 pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
-    println!("Got a packet: {:?}", eth_packet);
     let packet = EthernetPacket::new(eth_packet).unwrap();
     match packet.get_ethertype() {
         EtherTypes::Ipv4 => {
@@ -42,7 +41,6 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
             }
         }
         _ => {
-            println!("Got a different packet: {:?}", packet);
             return false;
         }
     }

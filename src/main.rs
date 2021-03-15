@@ -13,7 +13,7 @@ fn main() {
     let pool = ThreadPool::new(WORKERS).unwrap_or_else(|_|(panic!("size has to be >0!")));
 
     let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-    socket.bind(&"3.122.195.72:80".parse::<SocketAddr>().unwrap().into()).unwrap();
+    socket.bind(&"172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
     socket.listen(1).unwrap();
     let mut available_workers =  WORKERS;
     let listener = socket.into_tcp_listener();
