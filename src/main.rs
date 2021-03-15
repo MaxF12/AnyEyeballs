@@ -1,21 +1,24 @@
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-use std::net::{SocketAddr};
+use std::net::{SocketAddr, TcpStream};
 use socket2::{Socket, Domain, Type};
-use anyeyeballs::check_for_new_connection;
-use std::sync::atomic::{AtomicI32, Ordering};
+use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool};
+use std::io::{Read, Write};
+use std::{thread, fs};
+use std::time::Duration;
 
-const WORKERS: i32 = 4;
+const WORKERS: usize = 4;
 
 fn main() {
+    let pool = ThreadPool::new(WORKERS).unwrap_or_else(|_|(panic!("size has to be >0!")));
 
     let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-    socket.bind(&"127.0.0.1:80".parse::<SocketAddr>().unwrap().into()).unwrap();
+    socket.bind(&"3.122.195.72:80".parse::<SocketAddr>().unwrap().into()).unwrap();
     socket.listen(1).unwrap();
-    let available_workers =  AtomicI32::new(WORKERS);
-    let _listener = socket.into_tcp_listener();
+    let mut available_workers =  WORKERS;
+    let listener = socket.into_tcp_listener();
 
-    let interface = get_interface("en0");
+    let interface = get_interface("eth0");
     let (mut _lx, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("libpnet: unknown channel type: {}"),
@@ -27,8 +30,13 @@ fn main() {
             Ok(eth_packet) => {
                 if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
-                    if available_workers.load(Ordering::SeqCst) > 0 {
+                    if available_workers > 0 {
 
+                        let stream = listener.accept().unwrap().0;
+                        available_workers -= 1;
+                        pool.execute(|| {
+                            handle_connection(stream);
+                        });
                     }
                 }
             }
@@ -37,9 +45,29 @@ fn main() {
     }
 }
 
-pub fn get_interface(iface: &str)  -> datalink::NetworkInterface {
-    // Find the network interface with the provided name
-    let interfaces = datalink::interfaces();
-    interfaces.into_iter().filter(|i|i.name == iface)
-        .next().unwrap_or_else(|| panic!("No such network interface: {}", iface))
+
+
+fn handle_connection(mut stream: TcpStream) {
+    let mut buffer = [0; 512];
+    stream.read(&mut buffer).unwrap();
+
+    let get = b"GET / HTTP/1.1\r\n";
+    let sleep = b"GET /sleep HTTP/1.1\r\n";
+
+    let (status_line, filename) = if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
+    } else if  buffer.starts_with(sleep){
+        thread::sleep(Duration::from_secs(5));
+        ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
+    } else {
+        ("HTTP/1.1 404 NOT FOUND\r\n\r\n", "404.html")
+    };
+
+
+    let contents = fs::read_to_string(filename).unwrap();
+
+    let response = format!("{}{}", status_line, contents);
+    stream.write(response.as_bytes()).unwrap();
+    stream.flush().unwrap();
+
 }
