@@ -7,10 +7,11 @@ use std::io::{Read, Write};
 use std::{thread, fs};
 use std::time::Duration;
 
-const WORKERS: usize = 4;
+const WORKERS: usize = 1;
 
 fn main() {
     let pool = ThreadPool::new(WORKERS).unwrap_or_else(|_|(panic!("size has to be >0!")));
+    let mut packets = 0;
 
     let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
     socket.bind(&"172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
@@ -28,11 +29,13 @@ fn main() {
     loop {
         match rx.next() {
             Ok(eth_packet) => {
+                packets += 1;
+                println!("Packet number {}", packets);
                 if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
                     if available_workers > 0 {
-
                         let stream = listener.accept().unwrap().0;
+                        println!("Serving page");
                         available_workers -= 1;
                         pool.execute(|| {
                             handle_connection(stream);
@@ -51,6 +54,7 @@ fn handle_connection(mut stream: TcpStream) {
     let mut buffer = [0; 512];
     stream.read(&mut buffer).unwrap();
 
+    println!("Got message: {:?}", buffer);
     let get = b"GET / HTTP/1.1\r\n";
     let sleep = b"GET /sleep HTTP/1.1\r\n";
 

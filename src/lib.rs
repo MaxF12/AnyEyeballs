@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, mpsc};
 /// Returns true if packet is first of a new connection, false else
 pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
     let packet = EthernetPacket::new(eth_packet).unwrap();
+    if !packet.get_destination().is_local() {return false;}
     match packet.get_ethertype() {
         EtherTypes::Ipv4 => {
-
             let packet = Ipv4Packet::new(packet.payload()).unwrap();
             if  packet.get_next_level_protocol() != IpNextHeaderProtocols::Tcp {return false;}
             let packet = TcpPacket::new(packet.payload()).unwrap();
@@ -26,6 +26,9 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
                 println!("Got a new syn request!");
                 true
             } else {
+                if packet.get_destination() != 53431 && packet.get_destination() != 22{
+                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
+                }
                 false
             }
         },
@@ -37,10 +40,14 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
                 println!("Got a new syn request!");
                 true
             } else {
+                if packet.get_destination() != 53431 {
+                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
+                }
                 false
             }
         }
         _ => {
+            println!("Got different packet: {}", packet.get_ethertype());
             return false;
         }
     }
