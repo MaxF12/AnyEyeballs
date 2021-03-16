@@ -7,19 +7,19 @@ use std::io::{Read, Write};
 use std::{thread, fs};
 use std::time::Duration;
 
-const WORKERS: usize = 1;
+const WORKERS: usize = 10;
 
 fn main() {
     let pool = ThreadPool::new(WORKERS).unwrap_or_else(|_|(panic!("size has to be >0!")));
     let mut packets = 0;
 
     let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-    socket.bind(&"172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
+    socket.bind(&" 172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
     socket.listen(1).unwrap();
     let mut available_workers =  WORKERS;
     let listener = socket.into_tcp_listener();
 
-    let interface = get_interface("eth0");
+    let interface = get_interface("lo0");
     let (mut _lx, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("libpnet: unknown channel type: {}"),
@@ -30,8 +30,8 @@ fn main() {
         match rx.next() {
             Ok(eth_packet) => {
                 packets += 1;
-                println!("Packet number {}", packets);
-                if check_for_new_connection(eth_packet) {
+                //println!("Packet number {}", packets);
+                //if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
                     if available_workers > 0 {
                         let stream = listener.accept().unwrap().0;
@@ -41,7 +41,7 @@ fn main() {
                             handle_connection(stream);
                         });
                     }
-                }
+                //}
             }
             Err(e) => panic!("libpnet: unable to receive packet: {}", e),
         }
