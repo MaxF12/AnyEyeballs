@@ -16,10 +16,11 @@ use std::sync::{Arc, Mutex, mpsc};
 /// Returns true if packet is first of a new connection, false else
 pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
     let packet = EthernetPacket::new(eth_packet).unwrap();
-    if !packet.get_destination().is_local() {return false;}
+    if  packet.get_source().is_local() {return false;}
     match packet.get_ethertype() {
         EtherTypes::Ipv4 => {
             let packet = Ipv4Packet::new(packet.payload()).unwrap();
+            if  packet.get_source().is_local() {return false;}
             if  packet.get_next_level_protocol() != IpNextHeaderProtocols::Tcp {return false;}
             let packet = TcpPacket::new(packet.payload()).unwrap();
             if  packet.get_destination() == 80 && packet.get_flags() == 2  {
@@ -34,6 +35,7 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
         },
         EtherTypes::Ipv6 =>  {
             let packet = Ipv6Packet::new(packet.payload()).unwrap();
+            if  packet.get_source().is_local() {return false;}
             if  packet.get_next_header() != IpNextHeaderProtocols::Tcp {return false;}
             let packet = TcpPacket::new(packet.payload()).unwrap();
             if  packet.get_destination() == 80 && packet.get_flags() == 2  {
