@@ -31,7 +31,7 @@ fn main() {
             Ok(eth_packet) => {
                 packets += 1;
                 //println!("Packet number {}", packets);
-                //if check_for_new_connection(eth_packet) {
+                if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
                     if available_workers > 0 {
                         let stream = listener.accept().unwrap().0;
@@ -41,7 +41,7 @@ fn main() {
                             handle_connection(stream);
                         });
                     }
-                //}
+                }
             }
             Err(e) => panic!("libpnet: unable to receive packet: {}", e),
         }
