@@ -14,7 +14,7 @@ fn main() {
     let mut packets = 0;
 
     let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-    socket.bind(&" 172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
+    socket.bind(&"172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
     socket.listen(1).unwrap();
     let mut available_workers =  WORKERS;
     let listener = socket.into_tcp_listener();

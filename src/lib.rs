@@ -8,6 +8,7 @@ use pnet::datalink;
 
 use std::thread;
 use std::sync::{Arc, Mutex, mpsc};
+use pnet::util::MacAddr;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -16,11 +17,11 @@ use std::sync::{Arc, Mutex, mpsc};
 /// Returns true if packet is first of a new connection, false else
 pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
     let packet = EthernetPacket::new(eth_packet).unwrap();
-    if  packet.get_source().is_local() {return false;}
+    if  packet.get_source() == MacAddr::new(06,123,45,127,207,64) {return false;}
+    println!("Correct MAC Addr: {}", packet.get_source());
     match packet.get_ethertype() {
         EtherTypes::Ipv4 => {
             let packet = Ipv4Packet::new(packet.payload()).unwrap();
-            if  packet.get_source().is_local() {return false;}
             if  packet.get_next_level_protocol() != IpNextHeaderProtocols::Tcp {return false;}
             let packet = TcpPacket::new(packet.payload()).unwrap();
             if  packet.get_destination() == 80 && packet.get_flags() == 2  {
@@ -35,7 +36,6 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
         },
         EtherTypes::Ipv6 =>  {
             let packet = Ipv6Packet::new(packet.payload()).unwrap();
-            if  packet.get_source().is_local() {return false;}
             if  packet.get_next_header() != IpNextHeaderProtocols::Tcp {return false;}
             let packet = TcpPacket::new(packet.payload()).unwrap();
             if  packet.get_destination() == 80 && packet.get_flags() == 2  {
