@@ -17,7 +17,7 @@ use pnet::util::MacAddr;
 /// Returns true if packet is first of a new connection, false else
 pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
     let packet = EthernetPacket::new(eth_packet).unwrap();
-    if  packet.get_source() == MacAddr::new(06,123,45,127,207,64) {return false;}
+    if  packet.get_source() == MacAddr::new(0x06,0x7b,0x45,0x7f,0xcf,0x64) {return false;}
     println!("Correct MAC Addr: {}", packet.get_source());
     match packet.get_ethertype() {
         EtherTypes::Ipv4 => {
