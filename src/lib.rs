@@ -28,9 +28,6 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
                 println!("Got a new syn request!");
                 true
             } else {
-                if packet.get_destination() != 53431 && packet.get_destination() != 22{
-                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
-                }
                 false
             }
         },
@@ -42,9 +39,6 @@ pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
                 println!("Got a new syn request!");
                 true
             } else {
-                if packet.get_destination() != 53431 {
-                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
-                }
                 false
             }
         }
