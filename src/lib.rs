@@ -192,7 +192,7 @@ impl MetaListener {
         MetaListener{ listener: None, addr, active: false }
     }
 
-    pub fn start_listener(&mut self) {
+    pub fn start(&mut self) {
         let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
         socket.bind(&self.addr).unwrap();
         socket.listen(1).unwrap();
@@ -201,7 +201,7 @@ impl MetaListener {
         self.listener = Some(socket.into_tcp_listener());
     }
 
-    pub fn stop_listener(&mut self) {
+    pub fn stop(&mut self) {
         self.active =false;
         let mut dropped = None;
         swap(&mut dropped, &mut self.listener);
