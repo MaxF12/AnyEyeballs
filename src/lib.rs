@@ -9,6 +9,9 @@ use pnet::datalink;
 use std::thread;
 use std::sync::{Arc, Mutex, mpsc};
 use pnet::util::MacAddr;
+use std::net::{TcpListener};
+use socket2::{Socket, Domain, Type, SockAddr};
+use std::mem::swap;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -173,5 +176,45 @@ impl Worker {
             id,
             thread: Some(thread)
         }
+    }
+}
+
+
+pub struct MetaListener {
+    listener: Option<TcpListener>,
+    active: bool,
+    addr: SockAddr
+}
+
+pub struct ListenerError;
+impl MetaListener {
+    pub fn new(addr: SockAddr) -> MetaListener {
+        MetaListener{ listener: None, addr, active: false }
+    }
+
+    pub fn start_listener(&mut self) {
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        socket.bind(&self.addr).unwrap();
+        socket.listen(1).unwrap();
+        self.active = true;
+
+        self.listener = Some(socket.into_tcp_listener());
+    }
+
+    pub fn stop_listener(&mut self) {
+        self.active =false;
+        let mut dropped = None;
+        swap(&mut dropped, &mut self.listener);
+        println!("Closing listener: {:?}", dropped);
+        drop(dropped.unwrap());
+        self.listener=None;
+    }
+
+    pub fn get_listener(&self) -> &TcpListener {
+        self.listener.as_ref().unwrap()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 }

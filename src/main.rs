@@ -1,8 +1,7 @@
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
 use std::net::{SocketAddr, TcpStream};
-use socket2::{Socket, Domain, Type};
-use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool};
+use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener};
 use std::io::{Read, Write};
 use std::{thread, fs};
 use std::time::Duration;
@@ -11,13 +10,13 @@ const WORKERS: usize = 10;
 
 fn main() {
     let pool = ThreadPool::new(WORKERS).unwrap_or_else(|_|(panic!("size has to be >0!")));
-    let mut packets = 0;
+    let mut _packets = 0;
 
-    let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-    socket.bind(&"172.31.38.115:80".parse::<SocketAddr>().unwrap().into()).unwrap();
-    socket.listen(1).unwrap();
     let mut available_workers =  WORKERS;
-    let listener = socket.into_tcp_listener();
+
+    let addr = "127.0.0.1:80".parse::<SocketAddr>().unwrap().into();
+    let mut listener = MetaListener::new(addr);
+    listener.start_listener();
 
     let interface = get_interface("lo0");
     let (mut _lx, mut rx) = match datalink::channel(&interface, Default::default()) {
@@ -29,18 +28,23 @@ fn main() {
     loop {
         match rx.next() {
             Ok(eth_packet) => {
-                packets += 1;
+                _packets += 1;
                 //println!("Packet number {}", packets);
                 if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
-                    if available_workers > 0 {
-                        let stream = listener.accept().unwrap().0;
-                        println!("Serving page");
-                        available_workers -= 1;
-                        pool.execute(|| {
-                            handle_connection(stream);
-                        });
+                    if listener.is_active() {
+                        if available_workers > 0 {
+                            let stream = listener.get_listener().accept().unwrap().0;
+                            println!("Serving page");
+                            available_workers -= 1;
+                            pool.execute(|| {
+                                handle_connection(stream);
+                            });
+                        } else {
+                            listener.stop_listener();
+                        }
                     }
+
                 }
             }
             Err(e) => panic!("libpnet: unable to receive packet: {}", e),
