@@ -218,7 +218,7 @@ pub enum State {
     BothActive
 }
 pub fn send_join(quic_connection: &UdpSocket, orch_addr: &str, ipv4: &str, ipv6: &str) -> u8{
-    quic_connection.connect(orch_addr);
+    quic_connection.connect(orch_addr).unwrap();
     let mut buf:Vec<u8> = Vec::with_capacity(21);
     // Flag 000 for join
     buf.push(0_u8);
@@ -233,7 +233,7 @@ pub fn send_join(quic_connection: &UdpSocket, orch_addr: &str, ipv4: &str, ipv6:
     }
     println!("{:?}", buf);
 
-    quic_connection.send(&*buf);
+    quic_connection.send(&*buf).unwrap();
     let mut buffer = [0; 10];
     quic_connection.recv(&mut buffer).unwrap() as u8
 }

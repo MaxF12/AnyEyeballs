@@ -1,6 +1,6 @@
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-use std::net::{UdpSocket, SocketAddr, TcpStream, Ipv6Addr, Ipv4Addr};
+use std::net::{UdpSocket, SocketAddr, TcpStream, Ipv4Addr};
 use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener, State, send_join};
 use std::io::{Read, Write};
 use std::{fs};
@@ -25,13 +25,13 @@ fn main() {
     listener.start();
     // Get the correct interface and create a receive buffer for all incoming packets on that interface
     let interface = get_interface("lo0");
-    let (mut _lx, mut rx) = match datalink::channel(&interface, Default::default()) {
+    let (mut _lx, _rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => panic!("libpnet: unknown channel type: {}"),
+        Ok(_) => panic!("libpnet: unknown channel type"),
         Err(e) => panic!("libpnet: unable to create new  ethernet channel: {}", e),
     };
     // Create connection to Orchestrator
-    let mut quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+    let quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
     let node_id = send_join(&quic_socket, ORCH_ADDR, ADDR, ADDR_V6);
     println!("Node ID: {:?}", node_id);
     // Main program loop
