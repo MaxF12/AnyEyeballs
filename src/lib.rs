@@ -9,9 +9,10 @@ use pnet::datalink;
 use std::thread;
 use std::sync::{Arc, Mutex, mpsc};
 use pnet::util::MacAddr;
-use std::net::{TcpListener};
+use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket};
 use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
+use std::str::FromStr;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -97,13 +98,6 @@ type Job = Box<dyn FnBox + Send + 'static>;
 
 pub struct PoolCreationError;
 impl ThreadPool {
-    /// Create a new ThreadPool
-    ///
-    /// The size is the number of threads
-    ///
-    /// # Panics
-    ///
-    /// The 'new' function will panic if the size is zero.
     pub fn new(size: usize) -> Result<ThreadPool, PoolCreationError> {
         if size == 0 {
             Err(PoolCreationError)
@@ -160,18 +154,14 @@ impl Worker {
                 match message {
                     Message::NewJob(job) => {
                         println!("Worker {} got a job; executing.", id);
-
                         job.call_box();
                     },
                     Message::Terminate => {
-                        println!("Worker {} was told to temrinate.", id);
-
+                        println!("Worker {} was told to terminate.", id);
                         break;
                     }
                 }
-
             }});
-
         Worker {
             id,
             thread: Some(thread)
@@ -217,4 +207,33 @@ impl MetaListener {
     pub fn is_active(&self) -> bool {
         self.active
     }
+}
+
+pub enum State {
+    Idle,
+    Pending,
+    NoActive,
+    V4Active,
+    V6Active,
+    BothActive
+}
+pub fn send_join(quic_connection: &UdpSocket, orch_addr: &str, ipv4: &str, ipv6: &str) -> u8{
+    quic_connection.connect(orch_addr);
+    let mut buf:Vec<u8> = Vec::with_capacity(21);
+    // Flag 000 for join
+    buf.push(0_u8);
+    let ipv4: Vec<_> = ipv4.split(":").collect();
+    let ipv4 = Ipv4Addr::from_str(ipv4[0]).unwrap();
+    for oct in ipv4.octets().iter() {
+        buf.push(*oct);
+    }
+    let ipv6 = Ipv6Addr::from_str(ipv6).unwrap();
+    for oct in ipv6.octets().iter() {
+        buf.push(*oct);
+    }
+    println!("{:?}", buf);
+
+    quic_connection.send(&*buf);
+    let mut buffer = [0; 10];
+    quic_connection.recv(&mut buffer).unwrap() as u8
 }

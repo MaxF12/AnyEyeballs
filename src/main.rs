@@ -1,15 +1,19 @@
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-use std::net::{SocketAddr, TcpStream};
-use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener};
+use std::net::{UdpSocket, SocketAddr, TcpStream, Ipv6Addr, Ipv4Addr};
+use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener, State, send_join};
 use std::io::{Read, Write};
 use std::{fs};
+use pnet::transport::TransportProtocol::Ipv6;
 
-const WORKERS: usize = 10;
+const WORKERS: usize = 2;
 const ADDR: &str = "127.0.0.1:80";
+const ADDR_V6: &str = "::0";
+const ORCH_ADDR: &str = "127.0.0.1:7722";
 
 fn main() {
-
+    // Node state
+    let mut _state = State::Idle;
     // Number of total received packets
     let mut _packets = 0;
     // Create worker pool and set available worker variable
@@ -26,40 +30,44 @@ fn main() {
         Ok(_) => panic!("libpnet: unknown channel type: {}"),
         Err(e) => panic!("libpnet: unable to create new  ethernet channel: {}", e),
     };
-
+    // Create connection to Orchestrator
+    let mut quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+    let node_id = send_join(&quic_socket, ORCH_ADDR, ADDR, ADDR_V6);
+    println!("Node ID: {:?}", node_id);
     // Main program loop
     loop {
         // Check each packet incoming on specified interface
-        match rx.next() {
+        /**match rx.next() {
             Ok(eth_packet) => {
                 _packets += 1;
                 // Call check_for_new_connection which checks if the packet is the first packet of a new TCP connection (SYN)
                 if check_for_new_connection(eth_packet) {
                     println!("Got a new connection.");
-                    // Check if we are currently listening
+                    // Check if we are currently listening **/
                     if listener.is_active() {
+                        println!("Listener active!");
                         // If we still have worker threads available...
                         if available_workers > 0 {
                             // Accept the new connection
                             let stream = listener.get_listener().accept().unwrap().0;
                             // Reduce the amount of available workers
                             available_workers -= 1;
+                            // If that worker was the last one available, stop the listener
+                            if available_workers == 0 {
+                                listener.stop()
+                            }
                             // Hand over task to worker; serve webpage
                             println!("Serving page");
                             pool.execute(|| {
                                 handle_connection(stream);
                             });
-                            // If that worker was the last one available, stop the listener
-                            if available_workers == 0 {
-                                listener.stop()
-                            }
                         }
                     }
 
-                }
-            }
-            Err(e) => panic!("libpnet: unable to receive packet: {}", e),
-        }
+                //}
+            //}
+            //Err(e) => panic!("libpnet: unable to receive packet: {}", e),
+        //}
     }
 }
 
@@ -75,6 +83,7 @@ fn handle_connection(mut stream: TcpStream) {
     } else {
         panic!("http: received bad request!")
     };
+    println!("Wrote response!");
     let contents = fs::read_to_string(filename).unwrap();
     // format HTTP response and write it on the tcp stream
     let response = format!("{}{}", status_line, contents);
