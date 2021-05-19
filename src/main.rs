@@ -1,14 +1,14 @@
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-use std::net::{UdpSocket, SocketAddr, TcpStream, Ipv4Addr};
-use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener, State, send_join};
+use std::net::{UdpSocket, SocketAddr, TcpStream, Ipv4Addr, Shutdown};
+use anyeyeballs::{check_for_new_connection, get_interface, ThreadPool, MetaListener, State, Node};
 use std::io::{Read, Write};
 use std::{fs};
 use pnet::transport::TransportProtocol::Ipv6;
 
-const WORKERS: usize = 2;
-const ADDR: &str = "127.0.0.1:80";
-const ADDR_V6: &str = "::0";
+const WORKERS: usize = 20;
+const ADDR: &str = "127.0.0.1:9032";
+const ADDR_V6: &str = "::1";
 const ORCH_ADDR: &str = "127.0.0.1:7722";
 
 fn main() {
@@ -31,9 +31,9 @@ fn main() {
         Err(e) => panic!("libpnet: unable to create new  ethernet channel: {}", e),
     };
     // Create connection to Orchestrator
-    let quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
-    let node_id = send_join(&quic_socket, ORCH_ADDR, ADDR, ADDR_V6);
-    println!("Node ID: {:?}", node_id);
+    let mut node = Node::new(ORCH_ADDR, ADDR, ADDR_V6);
+    node.send_join();
+    println!("Node ID: {:?}", node.get_node_id());
     // Main program loop
     loop {
         // Check each packet incoming on specified interface
@@ -61,6 +61,8 @@ fn main() {
                             pool.execute(|| {
                                 handle_connection(stream);
                             });
+                            // Send status to orchestrator
+                            node.send_status((WORKERS - available_workers) as u8, (WORKERS - available_workers) as u8, 0);
                         }
                     }
 
@@ -88,5 +90,6 @@ fn handle_connection(mut stream: TcpStream) {
     // format HTTP response and write it on the tcp stream
     let response = format!("{}{}", status_line, contents);
     stream.write(response.as_bytes()).unwrap();
+    //stream.shutdown(Shutdown::Both);
     stream.flush().unwrap();
 }

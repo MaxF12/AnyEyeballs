@@ -9,10 +9,11 @@ use pnet::datalink;
 use std::thread;
 use std::sync::{Arc, Mutex, mpsc};
 use pnet::util::MacAddr;
-use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket};
+use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr};
 use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
 use std::str::FromStr;
+use std::fmt::Error;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -217,23 +218,71 @@ pub enum State {
     V6Active,
     BothActive
 }
-pub fn send_join(quic_connection: &UdpSocket, orch_addr: &str, ipv4: &str, ipv6: &str) -> u8{
-    quic_connection.connect(orch_addr).unwrap();
-    let mut buf:Vec<u8> = Vec::with_capacity(21);
-    // Flag 000 for join
-    buf.push(0_u8);
-    let ipv4: Vec<_> = ipv4.split(":").collect();
-    let ipv4 = Ipv4Addr::from_str(ipv4[0]).unwrap();
-    for oct in ipv4.octets().iter() {
-        buf.push(*oct);
-    }
-    let ipv6 = Ipv6Addr::from_str(ipv6).unwrap();
-    for oct in ipv6.octets().iter() {
-        buf.push(*oct);
-    }
-    println!("{:?}", buf);
 
-    quic_connection.send(&*buf).unwrap();
-    let mut buffer = [0; 10];
-    quic_connection.recv(&mut buffer).unwrap() as u8
+
+pub struct Node {
+    quic_connection: UdpSocket,
+    orch_addr: String,
+    ipv4: Ipv4Addr,
+    ipv6: Ipv6Addr,
+    node_id: u8
+}
+
+impl Node {
+    pub fn new(orch_addr: &str, ipv4: &str, ipv6: &str) -> Node {
+        let quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        let ipv4: Vec<_> = ipv4.split(":").collect();
+        let ipv4 = Ipv4Addr::from_str(ipv4[0]).unwrap();
+        let ipv6 = Ipv6Addr::from_str(ipv6).unwrap();
+        let orch_addr = orch_addr.clone().to_owned();
+        Node { quic_connection: quic_socket, orch_addr, ipv4, ipv6, node_id: 0 }
+    }
+
+    pub fn send_join(&mut self) -> Result<(), Error>{
+        self.quic_connection.connect(&self.orch_addr).unwrap();
+        let mut buf:Vec<u8> = Vec::with_capacity(21);
+        // Flag 000 for join
+        buf.push(0_u8);
+        for oct in self.ipv4.octets().iter() {
+            buf.push(*oct);
+        }
+        for oct in self.ipv6.octets().iter() {
+            buf.push(*oct);
+        }
+        println!("{:?}", buf);
+
+        self.quic_connection.send(&*buf).unwrap();
+        let mut buffer = [0; 10];
+        self.quic_connection.recv(&mut buffer).unwrap() as u8;
+        if buffer[0] == 4 {
+            self.node_id = buffer[1];
+        }
+        Ok(())
+    }
+
+    pub fn send_status(&self, total_load: u8, ipv4_load: u8, ipv6_load: u8) -> Result<(), Error>{
+        self.quic_connection.connect(&self.orch_addr).unwrap();
+        let mut buf:Vec<u8> = Vec::with_capacity(5);
+        buf.push(2_u8);
+        buf.push(self.node_id);
+        buf.push(total_load);
+        buf.push(ipv4_load);
+        buf.push(ipv6_load);
+        self.quic_connection.send(&*buf).unwrap();
+        Ok(())
+    }
+    pub fn get_node_id(&self) -> u8 {
+        self.node_id
+    }
+}
+
+impl Drop for Node {
+    fn drop(&mut self) {
+        println!("Sending leave to orchestrator.");
+        self.quic_connection.connect(&self.orch_addr).unwrap();
+        let mut buf:Vec<u8> = Vec::with_capacity(2);
+        buf.push(2_u8);
+        buf.push(self.node_id);
+        self.quic_connection.send(&*buf).unwrap();
+    }
 }
