@@ -6,7 +6,7 @@ use pnet::packet::tcp::TcpPacket;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::datalink;
 
-use std::thread;
+use std::{thread, io};
 use std::sync::{Arc, Mutex, mpsc};
 use pnet::util::MacAddr;
 use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr};
@@ -14,6 +14,8 @@ use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
 use std::str::FromStr;
 use std::fmt::Error;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -172,42 +174,35 @@ impl Worker {
 
 
 pub struct MetaListener {
-    listener: Option<TcpListener>,
-    active: bool,
+    pub listener: Arc<Mutex<Option<TcpListener>>>,
+    pub active: Arc<AtomicBool>,
     addr: SockAddr
 }
 
 pub struct ListenerError;
 impl MetaListener {
     pub fn new(addr: SockAddr) -> MetaListener {
-        MetaListener{ listener: None, addr, active: false }
+        MetaListener{ listener: Arc::new(Mutex::new(None)), addr, active: Arc::new(AtomicBool::new(false)) }
     }
 
     pub fn start(&mut self) {
         let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
         socket.bind(&self.addr).unwrap();
         socket.listen(1).unwrap();
-        self.active = true;
+        self.active.store(true, SeqCst);
 
-        self.listener = Some(socket.into_tcp_listener());
+        *self.listener.lock().unwrap() = Some(socket.into_tcp_listener());
     }
 
     pub fn stop(&mut self) {
-        self.active =false;
+        self.active.store(false, SeqCst);
         let mut dropped = None;
-        swap(&mut dropped, &mut self.listener);
+        swap(&mut dropped, &mut self.listener.lock().unwrap());
         println!("Closing listener: {:?}", dropped);
         drop(dropped.unwrap());
-        self.listener=None;
+        *self.listener.lock().unwrap()=None;
     }
 
-    pub fn get_listener(&self) -> &TcpListener {
-        self.listener.as_ref().unwrap()
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
 }
 
 pub enum State {
@@ -221,7 +216,7 @@ pub enum State {
 
 
 pub struct Node {
-    quic_connection: UdpSocket,
+    pub quic_connection: UdpSocket,
     orch_addr: String,
     ipv4: Ipv4Addr,
     ipv6: Ipv6Addr,
