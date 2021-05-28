@@ -9,4 +9,3 @@ edition = "2018"
 [dependencies]
 pnet = "0.27.2"
 socket2 = "0.3.19"
-bit-vec = "0.6.3"

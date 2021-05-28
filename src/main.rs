@@ -8,6 +8,8 @@ use pnet::transport::TransportProtocol::Ipv6;
 use std::thread::{Thread, sleep};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
+use std::ops::Deref;
+use socket2::Socket;
 
 const WORKERS: usize = 20;
 const ADDR: &str = "127.0.0.1:9032";
@@ -51,7 +53,7 @@ fn main() {
                         println!("Got a new connection.");
                         // Check if we are currently listening **/
             if active.load(SeqCst) {
-                println!("Listener active!");
+                sleep(time::Duration::from_millis(1));
                 // If we still have worker threads available...
                 if *available_workers_server.lock().unwrap() > 0 {
                     let stream = incoming.lock().unwrap();
@@ -69,10 +71,13 @@ fn main() {
                                 if *available_workers_server.lock().unwrap() == 0 {
                                     //listener.stop();
                                 }
+                                let avl_workers = available_workers_server.clone();
                                 // Hand over task to worker; serve webpage
                                 println!("Serving page");
-                                pool.execute(|| {
+                                pool.execute(move || {
                                     handle_connection(stream.0);
+                                    sleep(time::Duration::from_secs(60));
+                                    *avl_workers.lock().unwrap() += 1;
                                 });
 
                             },
@@ -103,15 +108,20 @@ fn main() {
                 println!("IPv4 new state: {:?}", ipv4_state);
                 if ipv4_state == 0 && listener.active.load(SeqCst) {
                     listener.stop();
+                } else if ipv4_state == 1 && !listener.active.load(SeqCst) {
+                    listener.start();
                 }
             }
         }
     });
     loop {
+        println!("Sending status update");
         // Send status to orchestrator
         let avl_workers = *available_workers.lock().unwrap();
+        node.send_status((WORKERS - avl_workers) as u8, (WORKERS - avl_workers) as u8, 0);
+        sleep(time::Duration::from_secs(1));
         if avl_workers < WORKERS && active.load(SeqCst) {
-            node.send_status((WORKERS - avl_workers) as u8, (WORKERS - avl_workers) as u8, 0);
+            println!("Not enough workers");
         }
         //connection.set_nonblocking(true);
     }
@@ -121,9 +131,10 @@ fn main() {
 
 
 // Serves simple HTTP replies to a connection
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(mut stream: Socket) {
     // Create a buffer and read from TCP stream
     let mut buffer = [0; 512];
+    stream.set_nonblocking(false);
     stream.read(&mut buffer).unwrap();
     // If its a GET request, set response header and load hello.html
     let (status_line, filename) = if buffer.starts_with(b"GET") {
@@ -136,6 +147,6 @@ fn handle_connection(mut stream: TcpStream) {
     // format HTTP response and write it on the tcp stream
     let response = format!("{}{}", status_line, contents);
     stream.write(response.as_bytes()).unwrap();
-    //stream.shutdown(Shutdown::Both);
+    stream.shutdown(Shutdown::Both);
     stream.flush().unwrap();
 }

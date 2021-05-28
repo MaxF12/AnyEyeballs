@@ -6,16 +6,17 @@ use pnet::packet::tcp::TcpPacket;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::datalink;
 
-use std::{thread, io};
+use std::{thread, io, time};
 use std::sync::{Arc, Mutex, mpsc};
 use pnet::util::MacAddr;
-use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr};
+use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr, Shutdown};
 use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
 use std::str::FromStr;
 use std::fmt::Error;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::thread::sleep;
 
 /// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
 ///
@@ -174,7 +175,7 @@ impl Worker {
 
 
 pub struct MetaListener {
-    pub listener: Arc<Mutex<Option<TcpListener>>>,
+    pub listener: Arc<Mutex<Option<Socket>>>,
     pub active: Arc<AtomicBool>,
     addr: SockAddr
 }
@@ -187,14 +188,26 @@ impl MetaListener {
 
     pub fn start(&mut self) {
         let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-        socket.bind(&self.addr).unwrap();
+        loop {
+            match socket.bind(&self.addr) {
+                Ok(_) => {break},
+                Err(ref e) if e.kind() == io::ErrorKind::AddrInUse => {
+                    println!("Addr still busy....");
+                    sleep(time::Duration::from_millis(100));
+                    continue;
+                },
+                Err(_) => {panic!()}
+            }
+        }
         socket.listen(1).unwrap();
+        socket.set_nonblocking(true);
         self.active.store(true, SeqCst);
 
-        *self.listener.lock().unwrap() = Some(socket.into_tcp_listener());
+        *self.listener.lock().unwrap() = Some(socket);
     }
 
     pub fn stop(&mut self) {
+        self.listener.lock().unwrap().as_ref().unwrap().shutdown(Shutdown::Both);
         self.active.store(false, SeqCst);
         let mut dropped = None;
         swap(&mut dropped, &mut self.listener.lock().unwrap());
