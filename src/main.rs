@@ -118,7 +118,7 @@ fn main() {
         println!("Sending status update");
         // Send status to orchestrator
         let avl_workers = *available_workers.lock().unwrap();
-        node.send_status((WORKERS - avl_workers) as u8, (WORKERS - avl_workers) as u8, 0);
+        node.send_status((WORKERS - avl_workers) as u8, (WORKERS - avl_workers) as u8, 0, active.load(SeqCst), false);
         sleep(time::Duration::from_secs(1));
         if avl_workers < WORKERS && active.load(SeqCst) {
             println!("Not enough workers");
@@ -140,7 +140,10 @@ fn handle_connection(mut stream: Socket) {
     let (status_line, filename) = if buffer.starts_with(b"GET") {
         ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
     } else {
-        panic!("http: received bad request!")
+        println!("http: received bad request!");
+        stream.shutdown(Shutdown::Both);
+        stream.flush().unwrap();
+        return;
     };
     println!("Wrote response!");
     let contents = fs::read_to_string(filename).unwrap();

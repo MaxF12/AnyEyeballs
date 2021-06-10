@@ -268,7 +268,7 @@ impl Node {
         Ok(())
     }
 
-    pub fn send_status(&self, total_load: u8, ipv4_load: u8, ipv6_load: u8) -> Result<(), Error>{
+    pub fn send_status(&self, total_load: u8, ipv4_load: u8, ipv6_load: u8, v4_active: bool, v6_active: bool) -> Result<(), Error>{
         self.quic_connection.connect(&self.orch_addr).unwrap();
         let mut buf:Vec<u8> = Vec::with_capacity(5);
         buf.push(2_u8);
@@ -276,6 +276,16 @@ impl Node {
         buf.push(total_load);
         buf.push(ipv4_load);
         buf.push(ipv6_load);
+        if v4_active {
+            buf.push(1)
+        } else {
+            buf.push(0)
+        }
+        if v6_active {
+            buf.push(1)
+        } else {
+            buf.push(0)
+        }
         self.quic_connection.send(&*buf).unwrap();
         Ok(())
     }
