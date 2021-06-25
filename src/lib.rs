@@ -1,14 +1,6 @@
-use pnet::packet::Packet;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::datalink;
 
-use std::{thread, io, time};
+use std::{thread, io, time, fs};
 use std::sync::{Arc, Mutex, mpsc};
-use pnet::util::MacAddr;
 use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr, Shutdown};
 use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
@@ -17,67 +9,7 @@ use std::fmt::Error;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread::sleep;
-
-/// Checks if the packet is a TCP packet with the SYN flag set and destination port 80
-///
-/// The packet is the packet to be analyzed
-///
-/// Returns true if packet is first of a new connection, false else
-pub fn check_for_new_connection(eth_packet: &[u8]) -> bool {
-    let packet = EthernetPacket::new(eth_packet).unwrap();
-    if  packet.get_source() == MacAddr::new(0x06,0x7b,0x45,0x7f,0xcf,0x64) {return false;}
-    println!("Correct MAC Addr: {}", packet.get_source());
-    match packet.get_ethertype() {
-        EtherTypes::Ipv4 => {
-            let packet = Ipv4Packet::new(packet.payload()).unwrap();
-            if  packet.get_next_level_protocol() != IpNextHeaderProtocols::Tcp {return false;}
-            let packet = TcpPacket::new(packet.payload()).unwrap();
-            if  packet.get_destination() == 80 && packet.get_flags() == 2  {
-                println!("Got a new syn request!");
-                true
-            } else {
-                if packet.get_destination() != 53431 && packet.get_destination() != 22{
-                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
-                }
-                false
-            }
-        },
-        EtherTypes::Ipv6 =>  {
-            let packet = Ipv6Packet::new(packet.payload()).unwrap();
-            if  packet.get_next_header() != IpNextHeaderProtocols::Tcp {return false;}
-            let packet = TcpPacket::new(packet.payload()).unwrap();
-            if  packet.get_destination() == 80 && packet.get_flags() == 2  {
-                println!("Got a new syn request!");
-                true
-            } else {
-                if packet.get_destination() != 53431 {
-                    println!("TCP wasnt correct, flag: {};port: {}",packet.get_flags(),  packet.get_destination());
-                }
-                false
-            }
-        }
-        _ => {
-            println!("Got different packet: {}", packet.get_ethertype());
-            return false;
-        }
-    }
-}
-
-/// Sends a TCP packet with the RST flag set in response to the packet
-///
-/// The packet is the packet to which to respond
-pub fn send_rst(_eth_packet: &[u8]) {
-    //TODO send a RST
-}
-
-
-pub fn get_interface(iface: &str)  -> datalink::NetworkInterface {
-    // Find the network interface with the provided name
-    let interfaces = datalink::interfaces();
-    interfaces.into_iter().filter(|i|i.name == iface)
-        .next().unwrap_or_else(|| panic!("No such network interface: {}", iface))
-}
-
+use std::io::{Read, Write};
 
 // Code related to running multiple threads
 enum Message {
@@ -187,23 +119,46 @@ impl MetaListener {
     }
 
     pub fn start(&mut self) {
-        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
-        loop {
-            match socket.bind(&self.addr) {
-                Ok(_) => {break},
-                Err(ref e) if e.kind() == io::ErrorKind::AddrInUse => {
-                    println!("Addr still busy....");
-                    sleep(time::Duration::from_millis(100));
-                    continue;
-                },
-                Err(_) => {panic!()}
+        println!("{:?}", self.addr.family());
+        if self.addr.family() == 2 {
+            let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+            loop {
+                match socket.bind(&self.addr) {
+                    Ok(_) => {break},
+                    Err(ref e) if e.kind() == io::ErrorKind::AddrInUse => {
+                        println!("Addr still busy....");
+                        sleep(time::Duration::from_millis(100));
+                        continue;
+                    },
+                    Err(_) => {panic!()}
+                }
             }
-        }
-        socket.listen(1).unwrap();
-        socket.set_nonblocking(true);
-        self.active.store(true, SeqCst);
+            socket.listen(1).unwrap();
+            socket.set_nonblocking(true);
+            self.active.store(true, SeqCst);
 
-        *self.listener.lock().unwrap() = Some(socket);
+            *self.listener.lock().unwrap() = Some(socket);
+        } else if self.addr.family() == 30 {
+            let socket = Socket::new(Domain::ipv6(), Type::stream(), None).unwrap();
+            loop {
+                match socket.bind(&self.addr) {
+                    Ok(_) => {break},
+                    Err(ref e) if e.kind() == io::ErrorKind::AddrInUse => {
+                        println!("Addr still busy....");
+                        sleep(time::Duration::from_millis(100));
+                        continue;
+                    },
+                    Err(e) => {
+                        println!("{:?}",e);
+                        panic!()}
+                }
+            }
+            socket.listen(1).unwrap();
+            socket.set_nonblocking(true);
+            self.active.store(true, SeqCst);
+
+            *self.listener.lock().unwrap() = Some(socket);
+        }
     }
 
     pub fn stop(&mut self) {
@@ -240,8 +195,9 @@ impl Node {
     pub fn new(orch_addr: &str, ipv4: &str, ipv6: &str) -> Node {
         let quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
         let ipv4: Vec<_> = ipv4.split(":").collect();
+        let ipv6: Vec<_> = ipv6.split("]").collect();
         let ipv4 = Ipv4Addr::from_str(ipv4[0]).unwrap();
-        let ipv6 = Ipv6Addr::from_str(ipv6).unwrap();
+        let ipv6 = Ipv6Addr::from_str(&ipv6[0][1..]).unwrap();
         let orch_addr = orch_addr.clone().to_owned();
         Node { quic_connection: quic_socket, orch_addr, ipv4, ipv6, node_id: 0 }
     }
@@ -303,4 +259,69 @@ impl Drop for Node {
         buf.push(self.node_id);
         self.quic_connection.send(&*buf).unwrap();
     }
+}
+
+pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: Arc<AtomicBool>, mut available_workers: Arc<Mutex<usize>>, mut active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>) {
+    loop {
+        if active.load(SeqCst) {
+            sleep(time::Duration::from_millis(1));
+            // If we still have worker threads available...
+            if *available_workers.lock().unwrap() > 0 {
+                let stream = incoming.lock().unwrap();
+                let stream = match stream.as_ref() {
+                    Some(i) => i,
+                    None => continue
+                };
+                let stream = stream.accept();
+                // Accept the new connection
+                match stream {
+                    Ok(stream) => {
+                        // Reduce the amount of available workers and increase active workers v4
+                        *available_workers.lock().unwrap() -= 1;
+                        *active_workers.lock().unwrap() += 1;
+                        // Clone worker counts for thread that handles connection
+                        let avl_workers = available_workers.clone();
+                        let act_workers = active_workers.clone();
+                        // Hand over task to worker; serve webpage
+                        println!("Serving page");
+                        pool.lock().unwrap().execute(move || {
+                            handle_connection(stream.0);
+                            sleep(time::Duration::from_secs(60));
+                            *avl_workers.lock().unwrap() += 1;
+                            *act_workers.lock().unwrap() -= 1;
+                        });
+                    },
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        continue;
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+// Serves simple HTTP replies to a connection
+fn handle_connection(mut stream: Socket) {
+    // Create a buffer and read from TCP stream
+    let mut buffer = [0; 512];
+    stream.set_nonblocking(false);
+    stream.read(&mut buffer).unwrap();
+    // If its a GET request, set response header and load hello.html
+    let (status_line, filename) = if buffer.starts_with(b"GET") {
+        ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
+    } else {
+        println!("http: received bad request!");
+        stream.shutdown(Shutdown::Both);
+        stream.flush().unwrap();
+        return;
+    };
+    println!("Wrote response!");
+    let contents = fs::read_to_string(filename).unwrap();
+    // format HTTP response and write it on the tcp stream
+    let response = format!("{}{}", status_line, contents);
+    stream.write(response.as_bytes()).unwrap();
+    stream.shutdown(Shutdown::Both);
+    stream.flush().unwrap();
+    drop(stream);
 }
