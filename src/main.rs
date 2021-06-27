@@ -6,8 +6,8 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
 const WORKERS: usize = 20;
-const ADDR: &str = "127.0.0.1:9033";
-const ADDR_V6: &str = "[::1]:9033";
+const ADDR: &str = "127.0.0.1:9032";
+const ADDR_V6: &str = "[::1]:9032";
 const ORCH_ADDR: &str = "127.0.0.1:7722";
 
 fn main() {
@@ -47,7 +47,6 @@ fn main() {
     let active_v6 = Arc::clone(&listener_v6.active);
     let incoming_v6 = Arc::clone(&listener_v6.listener);
     let available_workers_server_v6 = available_workers.clone();
-    let available_workers_server_v6 = available_workers.clone();
     let active_workers_server_v6 = active_workers_v6.clone();
     let pool_v6 = pool.clone();
     let server_v6 = thread::spawn(move ||
@@ -56,6 +55,7 @@ fn main() {
 
     let connection = node.quic_connection.try_clone().unwrap();
     let active_v4 = Arc::clone(&listener_v4.active);
+    let active_v6 = Arc::clone(&listener_v6.active);
     let orch_thread = thread::spawn(move || {
         loop {
             let mut buffer = [0; 10];
@@ -65,15 +65,17 @@ fn main() {
                 let ipv4_state = buffer[2];
                 let ipv6_state = buffer[3];
                 println!("IPv4 new state: {:?}", ipv4_state);
-                if ipv4_state == 0 && listener_v4.active.load(SeqCst) {
+                let v4_active = listener_v4.active.load(SeqCst);
+                if ipv4_state == 0 && v4_active {
                     listener_v4.stop();
-                } else if ipv4_state == 1 && !listener_v4.active.load(SeqCst) {
+                } else if ipv4_state == 2 && !v4_active {
                     listener_v4.start();
                 }
                 println!("IPv6 new state: {:?}", ipv6_state);
-                if ipv6_state == 0 && listener_v6.active.load(SeqCst) {
+                let v6_active = listener_v6.active.load(SeqCst);
+                if ipv6_state == 0 && v6_active {
                     listener_v6.stop();
-                } else if ipv4_state == 1 && !listener_v6.active.load(SeqCst) {
+                } else if ipv6_state == 2 && !v6_active {
                     listener_v6.start();
                 }
             }
@@ -84,7 +86,9 @@ fn main() {
         println!("Sending status update");
         // Send status to orchestrator
         let avl_workers = *available_workers.lock().unwrap();
-        node.send_status((WORKERS - avl_workers) as u8, (WORKERS - avl_workers) as u8, 0, active_v4.load(SeqCst), false);
+        let active_workers_v6 = *active_workers_v6.lock().unwrap();
+        let active_workers_v4 = *active_workers_v4.lock().unwrap();
+        node.send_status((WORKERS) as u8, (active_workers_v4) as u8, (active_workers_v6) as u8, active_v4.load(SeqCst), active_v6.load(SeqCst));
         sleep(time::Duration::from_secs(1));
         if avl_workers < WORKERS && active_v4.load(SeqCst) {
             println!("Not enough workers");
