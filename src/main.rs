@@ -92,8 +92,15 @@ fn main() {
                 let v6_active = listener_v6.active.load(SeqCst);
                 if ipv6_state == 0 && v6_active {
                     listener_v6.stop();
+                    if rtt_threshold_passed.load(SeqCst) {
+                        let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
+                        println!("Response time was: {:?}", response_time);
+                    }
                 } else if ipv6_state == 2 && !v6_active {
                     listener_v6.start();
+                    if rtt_threshold_passed.load(SeqCst) {
+                        rtt_threshold_passed.store(false, SeqCst);
+                    }
                 }
             }
         }
