@@ -10,6 +10,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::thread::sleep;
 use std::io::{Read, Write};
+use std::time::SystemTime;
+
+const RTT_THRESHOLD: f64 = 0.5;
 
 // Code related to running multiple threads
 enum Message {
@@ -138,7 +141,7 @@ impl MetaListener {
             self.active.store(true, SeqCst);
 
             *self.listener.lock().unwrap() = Some(socket);
-        } else if self.addr.family() == 30 {
+        } else if self.addr.family() == 10 {
             let socket = Socket::new(Domain::ipv6(), Type::stream(), None).unwrap();
             loop {
                 match socket.bind(&self.addr) {
@@ -261,7 +264,7 @@ impl Drop for Node {
     }
 }
 
-pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: Arc<AtomicBool>, mut available_workers: Arc<Mutex<usize>>, mut active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>) {
+pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: Arc<AtomicBool>, mut available_workers: Arc<Mutex<usize>>, mut active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>, rtt_threshold_passed: Arc<AtomicBool>, rtt_ts: Arc<Mutex<SystemTime>>) {
     loop {
         if active.load(SeqCst) {
             sleep(time::Duration::from_millis(1));
@@ -279,6 +282,13 @@ pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: A
                         // Reduce the amount of available workers and increase active workers v4
                         *available_workers.lock().unwrap() -= 1;
                         *active_workers.lock().unwrap() += 1;
+                        // start the RTT ts if we passed the threshold
+                        if (*available_workers.lock().unwrap() as f64) < (*available_workers.lock().unwrap() + *active_workers.lock().unwrap()) as f64 * RTT_THRESHOLD {
+                            if !rtt_threshold_passed.load(SeqCst) {
+                                *rtt_ts.lock().unwrap() = SystemTime::now();
+                                rtt_threshold_passed.store(true, SeqCst);
+                            }
+                        }
                         // Clone worker counts for thread that handles connection
                         let avl_workers = available_workers.clone();
                         let act_workers = active_workers.clone();

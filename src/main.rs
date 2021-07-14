@@ -4,6 +4,9 @@ use std::{thread, time};
 use std::thread::{sleep};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::convert::TryFrom;
+use std::sync::atomic::AtomicBool;
 
 const WORKERS: usize = 20;
 const ADDR: &str = "127.0.0.1:9032";
@@ -28,6 +31,9 @@ fn main() {
     let mut listener_v6 = MetaListener::new(addr);
     listener_v6.start();
 
+    //RTT timestamp
+    let mut rtt_ts = Arc::new(Mutex::new(SystemTime::now()));
+    let mut rtt_threshold_passed = Arc::new(AtomicBool::new(false));
     // Create connection to Orchestrator
     let mut node = Node::new(ORCH_ADDR, ADDR, ADDR_V6);
     node.send_join();
@@ -39,8 +45,10 @@ fn main() {
     let available_workers_server_v4 = available_workers.clone();
     let active_workers_server_v4 = active_workers_v4.clone();
     let pool_v4 = pool.clone();
+    let rtt_ts_v4 = rtt_ts.clone();
+    let rtt_thrs_passed_v4 = rtt_threshold_passed.clone();
     let server_v4 = thread::spawn(move ||
-        serve_connections(incoming_v4, active_v4, available_workers_server_v4, active_workers_server_v4, pool_v4)
+        serve_connections(incoming_v4, active_v4, available_workers_server_v4, active_workers_server_v4, pool_v4, rtt_thrs_passed_v4, rtt_ts_v4)
     );
 
     // Clone Arcs and start v6 thread
@@ -49,8 +57,10 @@ fn main() {
     let available_workers_server_v6 = available_workers.clone();
     let active_workers_server_v6 = active_workers_v6.clone();
     let pool_v6 = pool.clone();
+    let rtt_ts_v6 = rtt_ts.clone();
+    let rtt_thrs_passed_v6 = rtt_threshold_passed.clone();
     let server_v6 = thread::spawn(move ||
-        serve_connections(incoming_v6, active_v6, available_workers_server_v6, active_workers_server_v6, pool_v6)
+        serve_connections(incoming_v6, active_v6, available_workers_server_v6, active_workers_server_v6, pool_v6, rtt_thrs_passed_v6, rtt_ts_v6)
     );
 
     let connection = node.quic_connection.try_clone().unwrap();
@@ -68,8 +78,15 @@ fn main() {
                 let v4_active = listener_v4.active.load(SeqCst);
                 if ipv4_state == 0 && v4_active {
                     listener_v4.stop();
+                    if rtt_threshold_passed.load(SeqCst) {
+                        let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
+                        println!("Response time was: {:?}", response_time);
+                    }
                 } else if ipv4_state == 2 && !v4_active {
                     listener_v4.start();
+                    if rtt_threshold_passed.load(SeqCst) {
+                        rtt_threshold_passed.store(false, SeqCst);
+                    }
                 }
                 println!("IPv6 new state: {:?}", ipv6_state);
                 let v6_active = listener_v6.active.load(SeqCst);
