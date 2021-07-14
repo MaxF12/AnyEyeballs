@@ -279,11 +279,14 @@ pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: A
                 // Accept the new connection
                 match stream {
                     Ok(stream) => {
+                        println!("Got new connection!");
                         // Reduce the amount of available workers and increase active workers v4
                         *available_workers.lock().unwrap() -= 1;
                         *active_workers.lock().unwrap() += 1;
                         // start the RTT ts if we passed the threshold
-                        if (*available_workers.lock().unwrap() as f64) < (*available_workers.lock().unwrap() + *active_workers.lock().unwrap()) as f64 * RTT_THRESHOLD {
+                        let avl_workers = *available_workers.lock().unwrap() as f64;
+                        let act_workers = *active_workers.lock().unwrap() as f64;
+                        if (act_workers) < (avl_workers + act_workers) * RTT_THRESHOLD {
                             if !rtt_threshold_passed.load(SeqCst) {
                                 *rtt_ts.lock().unwrap() = SystemTime::now();
                                 rtt_threshold_passed.store(true, SeqCst);
