@@ -1,7 +1,7 @@
 
 use std::{thread, io, time, fs};
 use std::sync::{Arc, Mutex, mpsc};
-use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, UdpSocket, IpAddr, Shutdown};
+use std::net::{Ipv4Addr, Ipv6Addr, UdpSocket, Shutdown};
 use socket2::{Socket, Domain, Type, SockAddr};
 use std::mem::swap;
 use std::str::FromStr;
@@ -12,7 +12,29 @@ use std::thread::sleep;
 use std::io::{Read, Write};
 use std::time::SystemTime;
 
-const RTT_THRESHOLD: f64 = 0.5;
+pub struct Config {
+    pub addr: String,
+    pub addr_v6: String,
+    pub workers: usize,
+    pub orch_addr: String,
+    pub rtt_thresh: f64
+}
+
+impl Config {
+    pub fn new(config: String) -> Config{
+        let conf: toml::Value = toml::from_str(&*config).unwrap();
+        let addrv4 = format!("{}:{}", conf["node"]["ipv4"].as_str().unwrap(), conf["node"]["port"].as_str().unwrap());
+        let addrv6 = format!("{}:{}", conf["node"]["ipv6"].as_str().unwrap(), conf["node"]["port"].as_str().unwrap());
+        let addrorch = format!("{}:{}", conf["orchestrator"]["ip"].as_str().unwrap(), conf["orchestrator"]["port"].as_str().unwrap());
+        Config{
+            addr: addrv4,
+            addr_v6: addrv6,
+            workers: conf["node"]["workers"].as_integer().unwrap() as usize,
+            orch_addr: addrorch,
+            rtt_thresh: conf["node"]["rtt_threshold"].as_float().unwrap()
+        }
+    }
+}
 
 // Code related to running multiple threads
 enum Message {
@@ -137,7 +159,7 @@ impl MetaListener {
                 }
             }
             socket.listen(1).unwrap();
-            socket.set_nonblocking(true);
+            socket.set_nonblocking(true).unwrap();
             self.active.store(true, SeqCst);
 
             *self.listener.lock().unwrap() = Some(socket);
@@ -157,7 +179,7 @@ impl MetaListener {
                 }
             }
             socket.listen(1).unwrap();
-            socket.set_nonblocking(true);
+            socket.set_nonblocking(true).unwrap();
             self.active.store(true, SeqCst);
 
             *self.listener.lock().unwrap() = Some(socket);
@@ -165,7 +187,7 @@ impl MetaListener {
     }
 
     pub fn stop(&mut self) {
-        self.listener.lock().unwrap().as_ref().unwrap().shutdown(Shutdown::Both);
+        self.listener.lock().unwrap().as_ref().unwrap().shutdown(Shutdown::Both).unwrap();
         self.active.store(false, SeqCst);
         let mut dropped = None;
         swap(&mut dropped, &mut self.listener.lock().unwrap());
@@ -195,7 +217,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(orch_addr: &str, ipv4: &str, ipv6: &str) -> Node {
+    pub fn new(orch_addr: String, ipv4: String, ipv6: String) -> Node {
         let quic_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
         let ipv4: Vec<_> = ipv4.split(":").collect();
         let ipv6: Vec<_> = ipv6.split("]").collect();
@@ -227,24 +249,29 @@ impl Node {
         Ok(())
     }
 
-    pub fn send_status(&self, total_load: u8, ipv4_load: u8, ipv6_load: u8, v4_active: bool, v6_active: bool) -> Result<(), Error>{
+    pub fn send_status(&self, max_load: u8, ipv4_load: u8, ipv6_load: u8, v4_active: bool, v6_active: bool) -> Result<(), Error>{
         self.quic_connection.connect(&self.orch_addr).unwrap();
         let mut buf:Vec<u8> = Vec::with_capacity(5);
         buf.push(2_u8);
         buf.push(self.node_id);
+        let total_load = ((((ipv4_load as f64+ipv6_load as f64)/max_load as f64) as f64) * 200 as f64) as u8;
+        let v4_load = (((ipv4_load as f64/(ipv4_load as f64+ipv6_load as f64)) as f64) * 200 as f64) as u8;
+        let v6_load = (((ipv6_load as f64/(ipv4_load as f64+ipv6_load as f64)) as f64) * 200 as f64) as u8;
+        println!("{:?}", total_load);
         buf.push(total_load);
-        buf.push(ipv4_load);
-        buf.push(ipv6_load);
         if v4_active {
-            buf.push(1)
+            buf.push(v4_load);
         } else {
-            buf.push(0)
+            buf.push(201_u8)
         }
+        println!("V6: {:?}", v6_active);
         if v6_active {
-            buf.push(1)
+            buf.push(v6_load);
         } else {
-            buf.push(0)
+            buf.push(201_u8)
         }
+
+
         self.quic_connection.send(&*buf).unwrap();
         Ok(())
     }
@@ -258,13 +285,13 @@ impl Drop for Node {
         println!("Sending leave to orchestrator.");
         self.quic_connection.connect(&self.orch_addr).unwrap();
         let mut buf:Vec<u8> = Vec::with_capacity(2);
-        buf.push(2_u8);
+        buf.push(1_u8);
         buf.push(self.node_id);
         self.quic_connection.send(&*buf).unwrap();
     }
 }
 
-pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: Arc<AtomicBool>, mut available_workers: Arc<Mutex<usize>>, mut active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>, rtt_threshold_passed: Arc<AtomicBool>, rtt_ts: Arc<Mutex<SystemTime>>) {
+pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<AtomicBool>, available_workers: Arc<Mutex<usize>>, active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>, rtt_threshold_passed: Arc<AtomicBool>, rtt_ts: Arc<Mutex<SystemTime>>, rtt_thresh: f64) {
     loop {
         if active.load(SeqCst) {
             sleep(time::Duration::from_millis(1));
@@ -286,7 +313,7 @@ pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: A
                         // start the RTT ts if we passed the threshold
                         let avl_workers = *available_workers.lock().unwrap() as f64;
                         let act_workers = *active_workers.lock().unwrap() as f64;
-                        if (act_workers) < (avl_workers + act_workers) * RTT_THRESHOLD {
+                        if (act_workers) < (avl_workers + act_workers) * rtt_thresh {
                             if !rtt_threshold_passed.load(SeqCst) {
                                 *rtt_ts.lock().unwrap() = SystemTime::now();
                                 rtt_threshold_passed.store(true, SeqCst);
@@ -318,14 +345,14 @@ pub fn serve_connections(mut incoming: Arc<Mutex<Option<Socket>>>, mut active: A
 fn handle_connection(mut stream: Socket) {
     // Create a buffer and read from TCP stream
     let mut buffer = [0; 512];
-    stream.set_nonblocking(false);
+    stream.set_nonblocking(false).unwrap();
     stream.read(&mut buffer).unwrap();
     // If its a GET request, set response header and load hello.html
     let (status_line, filename) = if buffer.starts_with(b"GET") {
         ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
     } else {
         println!("http: received bad request!");
-        stream.shutdown(Shutdown::Both);
+        stream.shutdown(Shutdown::Both).unwrap();
         stream.flush().unwrap();
         return;
     };
@@ -334,7 +361,7 @@ fn handle_connection(mut stream: Socket) {
     // format HTTP response and write it on the tcp stream
     let response = format!("{}{}", status_line, contents);
     stream.write(response.as_bytes()).unwrap();
-    stream.shutdown(Shutdown::Both);
+    stream.shutdown(Shutdown::Both).unwrap();
     stream.flush().unwrap();
     drop(stream);
 }

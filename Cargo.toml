@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 socket2 = "0.3.19"
+toml = "0.5.8"

@@ -1,0 +1,10 @@
+[node]
+ipv4 = "127.0.0.1"
+ipv6 = "[::1]"
+port = "9032"
+workers = 20
+rtt_threshold = 0.5
+
+[orchestrator]
+ip = "127.0.0.1"
+port = "7722"
