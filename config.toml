@@ -2,9 +2,11 @@
 ipv4 = "127.0.0.1"
 ipv6 = "[::1]"
 port = "9032"
-workers = 20
+connections = 20
+sleep = 60
+report_interval = 2
 rtt_threshold = 0.5
 
-[orchestrator]
+[lbm]
 ip = "127.0.0.1"
 port = "7722"

@@ -17,7 +17,9 @@ pub struct Config {
     pub addr_v6: String,
     pub workers: usize,
     pub orch_addr: String,
-    pub rtt_thresh: f64
+    pub rtt_thresh: f64,
+    pub report_interval: u64,
+    pub sleep_time: u64
 }
 
 impl Config {
@@ -25,13 +27,15 @@ impl Config {
         let conf: toml::Value = toml::from_str(&*config).unwrap();
         let addrv4 = format!("{}:{}", conf["node"]["ipv4"].as_str().unwrap(), conf["node"]["port"].as_str().unwrap());
         let addrv6 = format!("{}:{}", conf["node"]["ipv6"].as_str().unwrap(), conf["node"]["port"].as_str().unwrap());
-        let addrorch = format!("{}:{}", conf["orchestrator"]["ip"].as_str().unwrap(), conf["orchestrator"]["port"].as_str().unwrap());
+        let addrorch = format!("{}:{}", conf["lbm"]["ip"].as_str().unwrap(), conf["lbm"]["port"].as_str().unwrap());
         Config{
             addr: addrv4,
             addr_v6: addrv6,
             workers: conf["node"]["workers"].as_integer().unwrap() as usize,
             orch_addr: addrorch,
-            rtt_thresh: conf["node"]["rtt_threshold"].as_float().unwrap()
+            rtt_thresh: conf["node"]["rtt_threshold"].as_float().unwrap(),
+            report_interval: conf["node"]["report_interval"].as_integer().unwrap() as u64,
+            sleep_time: conf["node"]["sleep"].as_integer().unwrap() as u64
         }
     }
 }
@@ -238,7 +242,6 @@ impl Node {
         for oct in self.ipv6.octets().iter() {
             buf.push(*oct);
         }
-        println!("{:?}", buf);
 
         self.quic_connection.send(&*buf).unwrap();
         let mut buffer = [0; 10];
@@ -257,14 +260,12 @@ impl Node {
         let total_load = ((((ipv4_load as f64+ipv6_load as f64)/max_load as f64) as f64) * 200 as f64) as u8;
         let v4_load = (((ipv4_load as f64/(ipv4_load as f64+ipv6_load as f64)) as f64) * 200 as f64) as u8;
         let v6_load = (((ipv6_load as f64/(ipv4_load as f64+ipv6_load as f64)) as f64) * 200 as f64) as u8;
-        println!("{:?}", total_load);
         buf.push(total_load);
         if v4_active {
             buf.push(v4_load);
         } else {
             buf.push(201_u8)
         }
-        println!("V6: {:?}", v6_active);
         if v6_active {
             buf.push(v6_load);
         } else {
@@ -291,7 +292,7 @@ impl Drop for Node {
     }
 }
 
-pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<AtomicBool>, available_workers: Arc<Mutex<usize>>, active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>, rtt_threshold_passed: Arc<AtomicBool>, rtt_ts: Arc<Mutex<SystemTime>>, rtt_thresh: f64) {
+pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<AtomicBool>, available_workers: Arc<Mutex<usize>>, active_workers: Arc<Mutex<usize>>, pool: Arc<Mutex<ThreadPool>>, rtt_threshold_passed: Arc<AtomicBool>, rtt_ts: Arc<Mutex<SystemTime>>, rtt_thresh: f64, sleep_time: u64) {
     loop {
         if active.load(SeqCst) {
             sleep(time::Duration::from_millis(1));
@@ -326,7 +327,7 @@ pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<Atomi
                         println!("Serving page");
                         pool.lock().unwrap().execute(move || {
                             handle_connection(stream.0);
-                            sleep(time::Duration::from_secs(60));
+                            sleep(time::Duration::from_secs(sleep_time));
                             *avl_workers.lock().unwrap() += 1;
                             *act_workers.lock().unwrap() -= 1;
                         });

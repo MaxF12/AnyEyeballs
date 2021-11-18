@@ -6,7 +6,7 @@ use std::io::Read;
 use std::thread::{sleep};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::AtomicBool;
 
 fn main() {
@@ -51,8 +51,9 @@ fn main() {
     let rtt_ts_v4 = rtt_ts.clone();
     let rtt_thrs_passed_v4 = rtt_threshold_passed.clone();
     let rtt_thresh =  config.rtt_thresh;
+    let sleep_time = config.sleep_time;
     let _server_v4 = thread::spawn(move ||
-        serve_connections(incoming_v4, active_v4, available_workers_server_v4, active_workers_server_v4, pool_v4, rtt_thrs_passed_v4, rtt_ts_v4, rtt_thresh)
+        serve_connections(incoming_v4, active_v4, available_workers_server_v4, active_workers_server_v4, pool_v4, rtt_thrs_passed_v4, rtt_ts_v4, rtt_thresh, sleep_time)
     );
 
     // Clone Arcs and start v6 thread
@@ -64,8 +65,9 @@ fn main() {
     let rtt_ts_v6 = rtt_ts.clone();
     let rtt_thrs_passed_v6 = rtt_threshold_passed.clone();
     let rtt_thresh =  config.rtt_thresh;
+    let sleep_time = config.sleep_time;
     let _server_v6 = thread::spawn(move ||
-        serve_connections(incoming_v6, active_v6, available_workers_server_v6, active_workers_server_v6, pool_v6, rtt_thrs_passed_v6, rtt_ts_v6, rtt_thresh)
+        serve_connections(incoming_v6, active_v6, available_workers_server_v6, active_workers_server_v6, pool_v6, rtt_thrs_passed_v6, rtt_ts_v6, rtt_thresh, sleep_time)
     );
 
     let connection = node.quic_connection.try_clone().unwrap();
@@ -85,6 +87,7 @@ fn main() {
                     listener_v4.stop();
                     if rtt_threshold_passed.load(SeqCst) {
                         let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
+                        println!("Intital time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                         println!("Response time was: {:?}", response_time);
                     }
                 } else if ipv4_state == 2 && !v4_active {
@@ -99,6 +102,7 @@ fn main() {
                     listener_v6.stop();
                     if rtt_threshold_passed.load(SeqCst) {
                         let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
+                        println!("Intital time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                         println!("Response time was: {:?}", response_time);
                     }
                 } else if ipv6_state == 2 && !v6_active {
@@ -112,16 +116,11 @@ fn main() {
     }
     );
     loop {
-        println!("Sending status update");
         // Send status to orchestrator
-        let avl_workers = *available_workers.lock().unwrap();
         let active_workers_v6 = *active_workers_v6.lock().unwrap();
         let active_workers_v4 = *active_workers_v4.lock().unwrap();
         node.send_status((config.workers) as u8, (active_workers_v4) as u8, (active_workers_v6) as u8, active_v4.load(SeqCst), active_v6.load(SeqCst)).unwrap();
-        sleep(time::Duration::from_secs(1));
-        if avl_workers < config.workers && active_v4.load(SeqCst) {
-            println!("Not enough workers");
-        }
+        sleep(time::Duration::from_secs(config.report_interval));
         //connection.set_nonblocking(true);
     }
 }
