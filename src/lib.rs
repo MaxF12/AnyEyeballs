@@ -31,7 +31,7 @@ impl Config {
         Config{
             addr: addrv4,
             addr_v6: addrv6,
-            workers: conf["node"]["workers"].as_integer().unwrap() as usize,
+            workers: conf["node"]["connections"].as_integer().unwrap() as usize,
             orch_addr: addrorch,
             rtt_thresh: conf["node"]["rtt_threshold"].as_float().unwrap(),
             report_interval: conf["node"]["report_interval"].as_integer().unwrap() as u64,
