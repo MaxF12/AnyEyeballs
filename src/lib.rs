@@ -316,8 +316,8 @@ pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<Atomi
                         let act_workers = *active_workers.lock().unwrap() as f64;
                         if (act_workers) < (avl_workers + act_workers) * rtt_thresh {
                             if !rtt_threshold_passed.load(SeqCst) {
-                                println!("Threshold time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                                 *rtt_ts.lock().unwrap() = SystemTime::now();
+                                println!("Threshold time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                                 rtt_threshold_passed.store(true, SeqCst);
                             }
                         }
