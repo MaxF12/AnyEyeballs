@@ -314,7 +314,7 @@ pub fn serve_connections(incoming: Arc<Mutex<Option<Socket>>>, active: Arc<Atomi
                         // start the RTT ts if we passed the threshold
                         let avl_workers = *available_workers.lock().unwrap() as f64;
                         let act_workers = *active_workers.lock().unwrap() as f64;
-                        if (avl_workers) < ((avl_workers + act_workers) * rtt_thresh) {
+                        if (avl_workers) < ((avl_workers + act_workers) * (1-rtt_thresh)) {
                             println!("Active workers: {:?}, Available Workers: {:?}, RTT_THRESH: {:?}",act_workers, avl_workers, rtt_thresh);
                             if !rtt_threshold_passed.load(SeqCst) {
                                 *rtt_ts.lock().unwrap() = SystemTime::now();
