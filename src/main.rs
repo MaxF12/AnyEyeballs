@@ -36,7 +36,7 @@ fn main() {
 
     //RTT timestamp
     let rtt_ts = Arc::new(Mutex::new(SystemTime::now()));
-    println!("Original timestamp: {:?}", rtt_ts.lock().unwrap());
+    println!("Original timestamp: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
     let rtt_threshold_passed = Arc::new(AtomicBool::new(false));
     // Create connection to Orchestrator
     let mut node = Node::new(config.orch_addr, config.addr, config.addr_v6);
