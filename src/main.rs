@@ -85,12 +85,12 @@ fn main() {
                 println!("IPv4 new state: {:?}", ipv4_state);
                 let v4_active = listener_v4.active.load(SeqCst);
                 if ipv4_state == 0 && v4_active {
-                    listener_v4.stop();
                     if rtt_threshold_passed.load(SeqCst) {
                         let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
                         println!("Intital time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                         println!("Response time was: {:?}", response_time);
                     }
+                    listener_v4.stop();
                 } else if ipv4_state == 2 && !v4_active {
                     listener_v4.start();
                     if rtt_threshold_passed.load(SeqCst) {
@@ -100,12 +100,12 @@ fn main() {
                 println!("IPv6 new state: {:?}", ipv6_state);
                 let v6_active = listener_v6.active.load(SeqCst);
                 if ipv6_state == 0 && v6_active {
-                    listener_v6.stop();
                     if rtt_threshold_passed.load(SeqCst) {
                         let response_time = rtt_ts.lock().unwrap().elapsed().unwrap().as_millis();
                         println!("Intital time stamp was: {:?}", rtt_ts.lock().unwrap().duration_since(UNIX_EPOCH));
                         println!("Response time was: {:?}", response_time);
                     }
+                    listener_v6.stop();
                 } else if ipv6_state == 2 && !v6_active {
                     listener_v6.start();
                     if rtt_threshold_passed.load(SeqCst) {
