@@ -23,4 +23,6 @@ Before running the client, the configuration in config.toml has to be updated. T
 | port             | The port the LBM uses to listen for incoming packets.                                                                                                               |
 
 ## Running
+Before running, make sure the orchestrator is already running as well. 
+
 To run the client, simply execute "cargo run config.toml" from the AnyEyeballs directory. 
