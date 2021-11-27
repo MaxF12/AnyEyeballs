@@ -121,7 +121,7 @@ fn main() {
         let active_workers_v6 = *active_workers_v6.lock().unwrap();
         let active_workers_v4 = *active_workers_v4.lock().unwrap();
         node.send_status((config.workers) as u8, (active_workers_v4) as u8, (active_workers_v6) as u8, active_v4.load(SeqCst), active_v6.load(SeqCst)).unwrap();
-        sleep(time::Duration::from_millis(config.report_interval));
+        sleep(time::Duration::from_secs(config.report_interval));
         //connection.set_nonblocking(true);
     }
 }
